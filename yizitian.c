@@ -41,9 +41,6 @@
 #define RAD_TO_DEG 57.29578
 #define M_PI 3.14159265358979323846
 
-
-
-
 void  INThandler(int sig)
 {
         signal(sig, SIG_IGN);
@@ -76,8 +73,6 @@ int main(int argc, char *argv[])
 	int  magRaw[3];
 	int  gyrRaw[3];
 
-
-
 	float gyroXangle = 0.0;
 	float gyroYangle = 0.0;
 	float gyroZangle = 0.0;
@@ -85,10 +80,16 @@ int main(int argc, char *argv[])
 	float AccXangle = 0.0;
 	float CFangleX = 0.0;
 	float CFangleY = 0.0;
+        float magX = 0.0;
+	float magY = 0.0;
+	float magZ = 0.0;
+	float tableTheta = 0.0;
+
+	int tableState = 0; // 10s of degrees
+	int previousTableState = 0;
 
 	int startInt  = mymillis();
 	struct  timeval tvBegin, tvEnd,tvDiff;
-
 
         signal(SIGINT, INThandler);
 
@@ -96,30 +97,24 @@ int main(int argc, char *argv[])
 
 	gettimeofday(&tvBegin, NULL);
 
-
 	while(1)
 	{
 	startInt = mymillis();
 
-
 	//read ACC and GYR data
 	readACC(accRaw);
 	readGYR(gyrRaw);
+	readMAG(magRaw);
 
 	//Convert Gyro raw to degrees per second
 	rate_gyr_x = (float) gyrRaw[0] * G_GAIN;
 	rate_gyr_y = (float) gyrRaw[1]  * G_GAIN;
 	rate_gyr_z = (float) gyrRaw[2]  * G_GAIN;
 
-
-
 	//Calculate the angles from the gyro
 	gyroXangle+=rate_gyr_x*DT;
 	gyroYangle+=rate_gyr_y*DT;
 	gyroZangle+=rate_gyr_z*DT;
-
-
-
 
 	//Convert Accelerometer values to degrees
 	AccXangle = (float) (atan2(accRaw[1],accRaw[2])+M_PI)*RAD_TO_DEG;
@@ -128,14 +123,14 @@ int main(int argc, char *argv[])
         //Change the rotation value of the accelerometer to -/+ 180 and move the Y axis '0' point to up.
         //Two different pieces of code are used depending on how your IMU is mounted.
         //If IMU is upside down
-	/*
+/*
         if (AccXangle >180)
                 AccXangle -= (float)360.0;
 
         AccYangle-=90;
         if (AccYangle >180)
                 AccYangle -= (float)360.0;
-	*/
+*/
 
         //If IMU is up the correct way, use these lines
         AccXangle -= (float)180.0;
@@ -149,11 +144,32 @@ int main(int argc, char *argv[])
 	CFangleX=AA*(CFangleX+rate_gyr_x*DT) +(1 - AA) * AccXangle;
 	CFangleY=AA*(CFangleY+rate_gyr_y*DT) +(1 - AA) * AccYangle;
 
+	//Table angle is CFangleY
+	tableTheta = CFangleY;
 
-	printf ("   GyroX  %7.3f \t AccXangle \e[m %7.3f \t \033[22;31mCFangleX %7.3f\033[0m\t GyroY  %7.3f \t AccYangle %7.3f \t \033[22;36mCFangleY %7.3f\t\033[0m\n",gyroXangle,AccXangle,CFangleX,gyroYangle,AccYangle,CFangleY);
+	//Mag raw gain
+        magX = (float) magRaw[0] * 1.0;
+	magY = (float) magRaw[1] * 1.0;
+	magZ = (float) magRaw[2] * 1.0;
+//	printf ("   GyroX  %7.3f \t AccXangle \e[m %7.3f \t \033[22;31mCFangleX %7.3f\033[0m\t GyroY  %7.3f \t AccYangle %7.3f \t \033[22;36mCFangleY %7.3f\t\033[0m\n"
+//              ,gyroXangle,AccXangle,CFangleX,gyroYangle,AccYangle,CFangleY);
+	printf ("  tableTheta %7.3f\n", tableTheta);
 
-	//Each loop should be at least 20ms.
-        while(mymillis() - startInt < (DT*1000))
+	// to send a message every sign change,
+	// record the current angle bucket
+	// publish on change
+	if (tableTheta >= 0)
+		previousTableState = 1;
+	else if (tableTheta < 0)
+		previousTableState = -1;
+
+	if (previousTableState != tableState) {
+		tableState = previousTableState;
+		printf ("  ==> tableState now %7.3d\n", tableState);
+	}
+
+	//Insure loop is at least 20 ms
+	while(mymillis() - startInt < (DT*1000))
         {
             usleep(100);
         }
